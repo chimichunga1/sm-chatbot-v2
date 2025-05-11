@@ -1,0 +1,82 @@
+Classic loop issue — sounds like your login state isn’t being persisted or detected correctly after Google Auth finishes. Here’s a quick checklist to help fix it:
+
+1. Check Your Auth Listener
+
+Make sure you’re listening for authentication state changes properly (especially in React apps). Something like:
+
+import { onAuthStateChanged } from "firebase/auth";
+
+useEffect(() => {
+  const unsubscribe = onAuthStateChanged(auth, (user) => {
+    if (user) {
+      navigate("/dashboard"); // or however you route
+    } else {
+      navigate("/login");
+    }
+  });
+
+  return () => unsubscribe();
+}, []);
+
+This makes sure the app knows when a user logs in or out.
+
+⸻
+
+2. Google Auth Flow
+
+Make sure you’re not just signing in but also correctly setting the user state:
+
+import { signInWithPopup, GoogleAuthProvider } from "firebase/auth";
+
+const provider = new GoogleAuthProvider();
+
+signInWithPopup(auth, provider)
+  .then((result) => {
+    // maybe store user in state/context
+    navigate("/dashboard"); // or set a redirect
+  })
+  .catch((error) => {
+    console.error("Login error", error);
+  });
+
+
+
+⸻
+
+3. Redirect vs Navigate
+
+If you’re using navigate("/dashboard"), double-check that your routing isn’t getting overridden somewhere else — especially after signInWithPopup.
+
+Also check you’re not accidentally navigating back to login with something like:
+
+navigate("/login") // that runs on mount before Firebase knows the user is logged in
+
+Wrap logic like that inside onAuthStateChanged.
+
+⸻
+
+4. Session Persistence
+
+Double-check you’re setting session persistence if needed:
+
+import { setPersistence, browserLocalPersistence } from "firebase/auth";
+
+setPersistence(auth, browserLocalPersistence)
+  .then(() => {
+    return signInWithPopup(auth, provider);
+  })
+  .then((result) => {
+    navigate("/dashboard");
+  });
+
+
+
+⸻
+
+TL;DR Fix
+	•	Ensure you’re using onAuthStateChanged at app load.
+	•	Don’t redirect to login unless you’re sure the user is not authenticated.
+	•	Set browserLocalPersistence if needed.
+	•	Only navigate("/dashboard") after login success or in the auth listener.
+
+Happy to peek at code if you want to paste a snippet. Want me to help write the full flow in React/Firebase?

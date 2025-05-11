@@ -1,0 +1,419 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Hide the Replit branding */
+.replit-ui-floating-button-container {
+  display: none !important;
+}
+
+:root {
+  /* Theme variables for smooth transitions */
+  --theme-primary: hsl(142 70% 30%);
+  --theme-radius: 0.4rem;
+
+  /* Apply smooth transitions to all color changes */
+  --transition-duration: 300ms;
+  --transition-timing: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Apply transitions to all elements */
+*, *::before, *::after {
+  transition-property: color, background-color, border-color, text-decoration-color, fill, stroke, box-shadow;
+  transition-timing-function: var(--transition-timing);
+  transition-duration: var(--transition-duration);
+}
+
+/* Document root when set to light mode */
+[data-theme-mode="light"] {
+  color-scheme: light;
+}
+
+/* Document root when set to dark mode */
+[data-theme-mode="dark"] {
+  color-scheme: dark;
+}
+
+@layer base {
+  :root {
+    /* Base colors - Black and White */
+    --background: 0 0% 100%;
+    --foreground: 0 0% 0%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 0%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 0%;
+
+    /* Primary - Use theme primary color variable */
+    --primary: var(--theme-primary);
+    --primary-foreground: 0 0% 100%;
+
+    /* Secondary - Light Gray */
+    --secondary: 0 0% 96%;
+    --secondary-foreground: 0 0% 10%;
+
+    --muted: 0 0% 96%;
+    --muted-foreground: 0 0% 40%;
+
+    --accent: 0 0% 96%;
+    --accent-foreground: 0 0% 10%;
+
+    /* Success - Green */
+    --success: 142 70% 45%;
+    --success-foreground: 0 0% 100%;
+
+    /* Destructive - Red */
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 0 0% 90%;
+    --input: 0 0% 90%;
+    --ring: 0 0% 0%;
+
+    /* Use theme radius variable */
+    --radius: var(--theme-radius);
+
+    /* Sidebar - Black */
+    --sidebar-background: 0 0% 0%;
+    --sidebar-foreground: 0 0% 100%;
+    --sidebar-primary: 0 0% 100%;
+    --sidebar-primary-foreground: 0 0% 0%;
+    --sidebar-accent: 142 70% 45%;
+    --sidebar-accent-foreground: 0 0% 0%;
+    --sidebar-border: 0 0% 20%;
+    --sidebar-ring: 0 0% 0%;
+
+    /* Chart colors */
+    --chart-1: 0 0% 0%;      /* Black */
+    --chart-2: 142 70% 45%;  /* Green */
+    --chart-3: 0 84% 60%;    /* Red */
+    --chart-4: 0 0% 60%;     /* Gray */
+    --chart-5: 0 0% 30%;     /* Dark Gray */
+  }
+
+  .dark {
+    /* Base colors - Black and White (inverted for dark mode) */
+    --background: 0 0% 10%;
+    --foreground: 0 0% 100%;
+
+    --card: 0 0% 10%;
+    --card-foreground: 0 0% 100%;
+
+    --popover: 0 0% 10%;
+    --popover-foreground: 0 0% 100%;
+
+    /* Primary - White in dark mode, but respect theme primary */
+    --primary: var(--theme-primary);
+    --primary-foreground: 0 0% 0%;
+
+    /* Secondary - Dark Gray */
+    --secondary: 0 0% 16%;
+    --secondary-foreground: 0 0% 100%;
+
+    --muted: 0 0% 16%;
+    --muted-foreground: 0 0% 70%;
+
+    --accent: 0 0% 16%;
+    --accent-foreground: 0 0% 100%;
+
+    /* Success - Green (slightly darker for dark mode) */
+    --success: 142 65% 40%;
+    --success-foreground: 0 0% 100%;
+
+    /* Destructive - Red (slightly darker for dark mode) */
+    --destructive: 0 70% 50%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 0 0% 20%;
+    --input: 0 0% 20%;
+    --ring: 0 0% 80%;
+
+    /* Sidebar - Black */
+    --sidebar-background: 0 0% 0%;
+    --sidebar-foreground: 0 0% 100%;
+    --sidebar-primary: 0 0% 100%;
+    --sidebar-primary-foreground: 0 0% 0%;
+    --sidebar-accent: 142 70% 45%;
+    --sidebar-accent-foreground: 0 0% 0%;
+    --sidebar-border: 0 0% 20%;
+    --sidebar-ring: 0 0% 100%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply font-sans antialiased bg-background text-foreground;
+  }
+}
+
+@layer utilities {
+  .bg-success {
+    background-color: hsl(var(--success));
+  }
+  .text-success {
+    color: hsl(var(--success));
+  }
+  .border-success {
+    border-color: hsl(var(--success));
+  }
+  .bg-success-foreground {
+    background-color: hsl(var(--success-foreground));
+  }
+  .text-success-foreground {
+    color: hsl(var(--success-foreground));
+  }
+
+  /* Custom utility classes for extra small screens */
+  @media (min-width: 475px) {
+    .xs\:inline {
+      display: inline;
+    }
+  }
+}
+
+.loading-spinner {
+  animation: spin 1s linear infinite;
+}
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Hide Replit badge */
+.r-badge, .r-ribbon {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+/* Mobile device improvements */
+/* Prevent overscroll behavior for iOS PWA */
+html {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  height: 100%;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: none;
+}
+
+/* Define CSS variables for safe areas */
+:root {
+  --sat: env(safe-area-inset-top, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+  --sal: env(safe-area-inset-left, 0px);
+  --sar: env(safe-area-inset-right, 0px);
+  --header-height: 4rem;
+  --bottom-nav-height: 4rem;
+}
+
+/* iOS specific styles - applied to all iOS devices */
+.ios-device {
+  /* Base iOS improvements */
+}
+
+/* PWA specific styles */
+.standalone-mode {
+  height: 100%;
+  overflow: hidden;
+}
+
+.standalone-mode body {
+  height: 100%;
+  position: fixed;
+  width: 100%;
+  overflow: hidden;
+}
+
+/* iOS PWA specific styling - much more targeted than before */
+.ios-pwa {
+  position: fixed;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.ios-pwa body {
+  background-color: hsl(var(--background));
+  /* Enable momentum scrolling but prevent bouncing */
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: none;
+}
+
+/* Main container adjustments for iOS PWA */
+.ios-pwa #root {
+  height: 100vh;
+  height: -webkit-fill-available;
+  overflow-y: auto;
+  position: fixed;
+  width: 100%;
+  left: 0;
+  top: 0;
+  padding-top: var(--sat);
+  padding-bottom: var(--sab);
+  overscroll-behavior: none;
+}
+
+/* Specific fixes for top navigation bar in iOS PWA */
+.ios-pwa .fixed.top-0 {
+  top: 0;
+  padding-top: var(--sat);
+  height: calc(var(--header-height) + var(--sat));
+  background-color: hsl(var(--background)) !important;
+  z-index: 50;
+}
+
+/* Logo and header positioning */
+.ios-pwa h1.text-lg {
+  /* Ensure proper vertical alignment in header */
+  line-height: 1;
+  margin: 0;
+}
+
+/* Main content padding adjustments */
+.ios-pwa .pt-16 {
+  padding-top: calc(var(--header-height) + var(--sat));
+}
+
+/* Bottom navigation in iOS PWA */
+.ios-pwa .fixed.bottom-0 {
+  bottom: 0;
+  padding-bottom: var(--sab);
+  height: calc(var(--bottom-nav-height) + var(--sab));
+  background-color: hsl(var(--background)) !important;
+  z-index: 50;
+}
+
+/* Specific adjustment for bottom nav items to account for home indicator */
+.ios-pwa .fixed.bottom-0 .flex.justify-around {
+  height: var(--bottom-nav-height); /* Don't include the safe area in the flex container height */
+  padding-bottom: 0;
+}
+
+/* Fix for the sticky nav specifically for newer iPhones with Dynamic Island */
+.ios-modern .fixed.top-0 {
+  padding-top: calc(var(--sat) + 4px);
+}
+
+/* Dark mode adjustments for iOS PWA */
+.dark .ios-pwa .fixed.top-0,
+.dark .ios-pwa .fixed.bottom-0 {
+  background-color: hsl(var(--background)) !important;
+}
+
+/* Content area needs specific padding when in iOS PWA */
+.ios-pwa main {
+  padding-bottom: calc(var(--bottom-nav-height) + var(--sab) + 16px);
+}
+
+/* Dark mode adjustments */
+.dark body {
+  background-color: hsl(var(--background));
+}
+
+.dark .md\:hidden.bg-white.shadow-sm,
+.dark .fixed.bottom-0 {
+  background-color: hsl(var(--background)) !important;
+}
+
+/* iOS PWA / Add to Home Screen Specific Styles */
+.standalone-mode {
+  height: 100%;
+  /* The entire app should fill the device screen */
+  overflow: hidden;
+}
+
+.standalone-mode body {
+  height: 100%;
+  /* Prevent scrolling of the body */
+  position: fixed;
+  width: 100%;
+  overflow: hidden;
+}
+
+/* iOS specific PWA styles */
+.ios-pwa .fixed.top-0 {
+  /* Add proper top padding for iPhone notch */
+  padding-top: env(safe-area-inset-top);
+  /* Make header taller to accommodate notch */
+  height: calc(4rem + env(safe-area-inset-top));
+}
+
+.ios-pwa .pt-16 {
+  /* Adjust main content padding to account for taller header */
+  padding-top: calc(4rem + env(safe-area-inset-top));
+}
+
+.ios-pwa .sticky.top-16 {
+  /* Adjust sticky title position based on header height */
+  top: calc(4rem + env(safe-area-inset-top));
+}
+
+.ios-pwa .fixed.bottom-0 {
+  /* Add proper bottom padding for iPhone home indicator */
+  padding-bottom: env(safe-area-inset-bottom);
+  /* Make footer taller to accommodate home indicator */
+  height: calc(4rem + env(safe-area-inset-bottom));
+}
+
+/* Handle the entire page scrolling as one view inside PWA */
+.ios-pwa #root {
+  height: 100%;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  /* Prevent overscroll bounce effect in PWA mode */
+  overscroll-behavior: none;
+}
+
+.ios-pwa .min-h-screen {
+  /* Set minimum height for content */
+  min-height: calc(100% - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+}
+
+/* Prevent overscroll in iOS PWA mode - Apple-specific */
+.ios-pwa {
+  position: fixed;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* Fix bottom indicator and menu alignment */
+.ios-pwa .fixed.bottom-0 {
+  /* Move bottom menu lower to account for home indicator */
+  bottom: env(safe-area-inset-bottom, 0);
+  /* Make footer tall enough for home indicator */
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
+
+/* Remove any active indicator dots from mobile nav */
+.mobile-nav-item::after,
+.mobile-nav-item::before {
+  display: none !important;
+}
+
+/* Remove potential dot indicators */
+[href] > div::after,
+[href] > div::before {
+  display: none !important;
+}
+/* Hide the Replit popup */
+.replit-ui-theme-root,
+.replit-ui-iframe-popup,
+div[class*="jsx-"] + div[class*="jsx-"] {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}

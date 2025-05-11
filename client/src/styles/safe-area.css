@@ -1,0 +1,82 @@
+/**
+ * CSS for handling iOS safe areas in PWA mode
+ * These variables are only used when the app is in PWA mode on iOS
+ */
+
+/* Tailwind doesn't have built-in safe area support, so we define custom utilities */
+  /* Top safe area (for notch) */
+  .pt-safe-top {
+    padding-top: env(safe-area-inset-top);
+  }
+  
+  /* Bottom safe area (for home indicator) */
+  .pb-safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  
+  /* Left safe area */
+  .pl-safe-left {
+    padding-left: env(safe-area-inset-left);
+  }
+  
+  /* Right safe area */
+  .pr-safe-right {
+    padding-right: env(safe-area-inset-right);
+  }
+  
+  /* Full safe area padding */
+  .p-safe {
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+  
+  /* Additional helper for common iOS header height with notch */
+  .h-ios-header {
+    height: calc(4rem + env(safe-area-inset-top));
+  }
+  
+  /* Additional helper for common iOS footer height with home indicator */
+  .h-ios-footer {
+    height: calc(4rem + env(safe-area-inset-bottom));
+  }
+
+/* 
+ * iOS-specific adjustments for standalone mode (Add to Home Screen)
+ * These classes are automatically added to html element in main.tsx
+ */
+html.ios-pwa {
+  /* Prevent scroll bouncing/rubber-banding effect */
+  overflow: hidden;
+  height: 100%;
+  position: fixed;
+  width: 100%;
+}
+
+html.ios-pwa body {
+  /* Set viewport to fixed size */
+  overflow: auto;
+  height: 100%;
+  position: relative;
+  /* Disable pull-to-refresh */
+  overscroll-behavior-y: none;
+  /* Remove highlight tap color */
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Fix Safari input zooming */
+html.ios-pwa input,
+html.ios-pwa select,
+html.ios-pwa textarea {
+  font-size: 16px !important;
+}
+
+/* Add a bit more padding to bottom area for iPhone models with home indicator */
+html.ios-modern.ios-pwa .fixed-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* Status bar styling for PWAs */
+@media (display-mode: standalone) {
+  :root {
+    --satatus-bar-height: env(safe-area-inset-top);
+  }
+}

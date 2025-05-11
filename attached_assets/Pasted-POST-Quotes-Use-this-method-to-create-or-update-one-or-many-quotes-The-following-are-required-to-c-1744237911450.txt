@@ -1,0 +1,198 @@
+POST Quotes
+Use this method to create or update one or many quotes.
+
+The following are required to create a draft quote
+
+Property	Description
+Contact	See Contacts
+Date	Date quote was issued – YYYY-MM-DD
+LineItems	The LineItems collection can contain any number of individual LineItem sub-elements. At minimum, a description is required to create a complete quote.
+The following are required when updating one or many quotes
+
+Property	Description
+QuoteID	QuoteID GUID is automatically generated and is returned after create or GET.
+The following are optional when creating or updating quotes.
+NOTE: Some fields cannot be updated when a quote is in a specific state. See editable fields for more information
+
+Property	Description
+LineAmountTypes	See Line Amount Types
+Status	See Quote Status Codes
+ExpiryDate	Date quote expires – YYYY-MM-DD
+CurrencyCode	The currency that quote has been raised in (see Currencies)
+QuoteNumber	Unique alpha numeric code identifying a quote (Max Length = 255)
+Reference	Additional reference number
+BrandingThemeID	See BrandingThemes
+Title	The title of the quote (Max Length = 100)
+Summary	The summary of the quote (Max Length = 3000)
+Terms	The terms of the quote (Max Length = 4000)
+Elements for LineItems
+
+Property	Description
+Description	Description needs to be at least 1 char long. A line item with just a description (i.e no unit amount or quantity) can be created by specifying just a Description element that contains at least 1 character (max length = 4000)
+Quantity	LineItem Quantity
+UnitAmount	Lineitem unit amount. By default, unit amount will be rounded to four decimal places.
+ItemCode	See Items
+AccountCode	See Accounts
+TaxType	See TaxTypes. Please note, if this field is not included in the payload the tax rate field in the quote will not populate from the default account code unlike other endpoints.
+DiscountRate or DiscountAmount	Percentage discount or discount amount being applied to a line item.
+Tracking	Section for optional Tracking Category – see TrackingCategory. Any LineItem can have a maximum of 2 TrackingCategory elements. Tracking is limited to TrackingOptionID only for Quotes.
+Elements for TrackingCategory
+
+Property	Description
+TrackingOptionID	Xero assigned unique ID for the option
+Quote status changes
+The following state changes are valid when updating quotes.
+
+Property	Description
+Existing status	New status
+DRAFT	SENT
+DRAFT	DELETED
+SENT	ACCEPTED
+ACCEPTED	INVOICED
+SENT	DECLINED
+SENT	DELETED
+DECLINED	SENT
+DECLINED	DELETED
+ACCEPTED	SENT
+ACCEPTED	DELETED
+INVOICED	SENT
+INVOICED	DELETED
+Status based editible fields
+The following fields changes are valid when updating quotes in a specific status.
+
+Property	Description
+Existing status	Editable Fields
+DRAFT	All fields
+SENT	All fields
+DECLINED	Contact details
+Notes
+ACCEPTED	Contact details
+Notes
+INVOICED	Contact details
+Notes
+Example of minimum elements required to create a single draft quote
+
+POST https://api.xero.com/api.xro/2.0/Quotes
+
+
+copy code
+{
+"Contact": {
+  "ContactID": "6d42f03b-181f-43e3-93fb-2025c012de92"
+},
+"Date": "2019-11-29",
+"LineItems": [
+  {
+    "Description": "Consulting services"
+  }
+]
+}
+
+
+copy code
+Example to create a single draft quote with all possible elements
+
+POST https://api.xero.com/api.xro/2.0/Quotes
+
+
+copy code
+{
+ "QuoteNumber": "QU-1068",
+ "Reference": "REF-90092",
+ "Terms": "Quote is valid for 30 business days",
+ "Contact": {
+   "ContactID": "6d42f03b-181f-43e3-93fb-2025c012de92",
+   "ContactName": "John Hammond"
+ },
+ "LineItems": [
+   {
+     "Description": "Jurassic Park Colouring Book",
+     "UnitAmount": 12.50,
+     "LineAmount": 12.50,
+     "ItemCode": "BOOK",
+     "Quantity": 1.0000
+   }
+ ],
+ "Date": "2019-11-29",
+ "ExpiryDate": "2019-12-29",
+ "Status": "SENT",
+ "CurrencyCode": "NZD",
+ "SubTotal": 12.50,
+ "TotalTax": 0.00,
+ "Total": 12.50,
+ "Title": "Quote for product sale",
+ "Summary": "Sale of book",
+ "Tracking": [],
+ "LineAmountTypes": "EXCLUSIVE"
+ }
+
+
+copy code
+Example of minimum elements required to update a single draft quote
+
+POST https://api.xero.com/api.xro/2.0/Quotes
+
+
+copy code
+{
+"QuoteID": "68e9965d-8d22-4e22-a01c-ee0a78fb3ea1",
+"Contact": {
+  "ContactID": "6d42f03b-181f-43e3-93fb-2025c012de92"
+},
+"Date": "2019-11-29",
+"LineItems": [
+  {
+    "Description": "Consulting services"
+  }
+]
+}
+
+
+copy code
+Example of maximum elements required to update a single draft quote
+
+POST https://api.xero.com/api.xro/2.0/Quotes
+
+
+copy code
+{
+ "QuoteID": "68e9965d-8d22-4e22-a01c-ee0a78fb3ea1",
+ "QuoteNumber": "QU-1068",
+ "Reference": "REF-90092",
+ "Terms": "Quote is valid for 30 business days",
+ "Contact": {
+   "ContactID": "6d42f03b-181f-43e3-93fb-2025c012de92"
+ },
+ "LineItems": [
+   {
+     "LineItemID": "060f0936-5818-4b31-acbd-6c733dafbc1a",
+     "Description": "Jurassic Park Colouring Book",
+     "UnitAmount": 12.50,
+     "LineAmount": 12.50,
+     "ItemCode": "BOOK",
+     "Quantity": 1.0000
+   }
+ ],
+ "Date": "2019-11-29",
+ "ExpiryDate": "2019-12-29",
+ "Status": "SENT",
+ "CurrencyCode": "NZD",
+ "SubTotal": 12.50,
+ "TotalTax": 0.00,
+ "Total": 12.50,
+ "Title": "Quote for product sale",
+ "Summary": "Sale of book",
+ "Tracking": [],
+ "LineAmountTypes": "EXCLUSIVE"
+ }
+
+
+copy code
+Retrieving History
+View a summary of the actions made by all users to the quote. See the History and Notes page for more details.
+
+Add Notes to a Quote
+Add a note which will appear in the history against an quote. See the History and Notes page for more details.
+
+PUT Quotes
+The PUT method is similar to the POST Quotes method, however you can only create new quotes with this method.

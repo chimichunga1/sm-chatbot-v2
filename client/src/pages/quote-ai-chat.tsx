@@ -1,0 +1,984 @@
+/**
+ * Quote AI Chat Component
+ * Refactored to use the React compatibility layer for forward compatibility with React 19
+ */
+import { useState, useRef, useEffect } from "@/lib/react-compat";
+import { useLocation, useParams } from "wouter";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { useToast } from "@/hooks/use-toast";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
+import { useChat } from "ai/react";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
+import { Loader2, Send, ArrowLeft, Save, Mic, X, Plus, Trash2, FileText, Pencil } from "lucide-react";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { DashboardLayout } from "@/components/layout/dashboard-layout";
+import { Quote } from "@shared/schema";
+import { Input } from "@/components/ui/input";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Label } from "@/components/ui/label";
+import { useAuth } from "@/lib/auth-context";
+
+// TypeScript declarations for Web Speech API
+declare global {
+  interface Window {
+    SpeechRecognition: any;
+    webkitSpeechRecognition: any;
+  }
+}
+
+interface SpeechRecognitionEvent extends Event {
+  resultIndex: number;
+  results: {
+    length: number;
+    [index: number]: {
+      isFinal: boolean;
+      [index: number]: {
+        transcript: string;
+      }
+    }
+  }
+}
+
+interface SpeechRecognition extends EventTarget {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  start(): void;
+  stop(): void;
+  abort(): void;
+  onresult: (event: SpeechRecognitionEvent) => void;
+  onerror: (event: any) => void;
+  onend: () => void;
+  onstart: () => void;
+}
+
+interface LineItem {
+  description: string;
+  quantity: number;
+  unitPrice: number;
+  total: number;
+}
+
+interface CompanyData {
+  id?: number;
+  name?: string;
+  logo?: string;
+  address?: string;
+  phone?: string;
+  email?: string;
+  xeroTokenSet?: string | null;
+  xeroTenantId?: string | null;
+}
+
+// Helper function to extract AI-generated line items from text
+function extractLineItems(aiText: string): LineItem[] {
+  const result: LineItem[] = [];
+  // Simple regex to match patterns like: "- Service name: $100 per hour"
+  const itemRegex = /[-•*]\s+(.*?):\s*\$?(\d+(?:\.\d+)?)\s*(?:per\s+(\w+))?/gi;
+  
+  let match;
+  while ((match = itemRegex.exec(aiText)) !== null) {
+    const description = match[1].trim();
+    const price = parseFloat(match[2]);
+    
+    if (description && !isNaN(price)) {
+      result.push({
+        description,
+        quantity: 1, // Default quantity
+        unitPrice: price,
+        total: price // Default total (quantity * price)
+      });
+    }
+  }
+  
+  return result;
+}
+
+export default function QuoteAiChat() {
+  const { id } = useParams();
+  const quoteId = parseInt(id || '0', 10);
+  const [, navigate] = useLocation();
+  const { toast } = useToast();
+  const { user } = useAuth();
+  const chatContainerRef = useRef<HTMLDivElement>(null);
+  
+  // State
+  const [quote, setQuote] = useState<Quote | null>(null);
+  const [company, setCompany] = useState<CompanyData | null>(null);
+  const [voiceInput, setVoiceInput] = useState(false);
+  const [recognitionInstance, setRecognitionInstance] = useState<SpeechRecognition | null>(null);
+  const [hasChanges, setHasChanges] = useState(false);
+  const [lineItems, setLineItems] = useState<LineItem[]>([]);
+  const [newItem, setNewItem] = useState<LineItem>({
+    description: '',
+    quantity: 1,
+    unitPrice: 0,
+    total: 0
+  });
+  
+  // Auto-save debounce timer
+  const saveTimerRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Query quote data
+  const { isLoading: isLoadingQuote } = useQuery({ 
+    queryKey: ['/api/quotes', quoteId],
+    queryFn: async () => {
+      if (!quoteId) return null;
+      
+      const response = await apiRequest('GET', `/api/quotes/${quoteId}`);
+      const data = await response.json();
+      
+      if (response.ok) {
+        setQuote(data);
+        
+        // Load line items
+        if (data.lineItems) {
+          try {
+            setLineItems(JSON.parse(data.lineItems));
+          } catch (e) {
+            console.error('Failed to parse line items:', e);
+          }
+        }
+        
+        return data;
+      }
+      
+      throw new Error(data.message || 'Failed to load quote');
+    },
+    enabled: !!quoteId
+  });
+  
+  // Load company data
+  const { data: companyData } = useQuery({
+    queryKey: ['/api/settings/company'],
+    queryFn: async () => {
+      const response = await apiRequest('GET', '/api/settings/company');
+      
+      if (response.ok) {
+        const data = await response.json();
+        setCompany(data);
+        return data;
+      }
+      
+      return null;
+    }
+  });
+  
+  // Set up AI chat
+  // Setup AI chat - using system message to configure context
+  const systemMessage = `You are a professional estimator helping to create detailed quotes for clients. 
+Use the following information to provide accurate quotes:
+
+ABOUT THE COMPANY:
+${company?.name || 'Our company'} specializes in professional services.
+${company?.address ? `We are located at ${company.address}.` : ''}
+${company?.phone ? `You can contact us at ${company.phone}.` : ''}
+${company?.email ? `Our email is ${company.email}.` : ''}
+
+ABOUT THE QUOTE:
+${quote?.quoteNumber ? `Quote #: ${quote.quoteNumber}` : 'New Quote'}
+${quote?.description ? `Description: ${quote.description}` : ''}
+${quote?.clientName ? `Client: ${quote.clientName}` : ''}
+
+YOUR GUIDELINES:
+1. Listen carefully to understand what the client needs
+2. Ask questions about scope, timeline, requirements
+3. Break down complex services into line items with clear descriptions
+4. Format line item suggestions with description and price:
+   - Service name: $X per hour
+   - Project management: $Y per week
+5. Be professionally optimistic but realistic about costs
+6. If asked about rates or similar items, include them as line items
+7. Make sure to format line items with a hyphen followed by the service name, a colon, and the price
+8. Always explain what's included and what's not in your suggested pricing
+9. When prompted to add estimates, respond with proper line-item format`;
+  
+  const {
+    messages,
+    input,
+    setInput,
+    handleInputChange,
+    handleSubmit: handleChatSubmit,
+    isLoading: isSubmitting,
+    append
+  } = useChat({
+    api: "/api/ai/chat",
+    body: {
+      systemPrompt: systemMessage,
+      clientId: quote?.clientId || undefined,
+      companyId: quote?.companyId || user?.companyId || undefined
+    },
+    id: `quote-chat-${quoteId || 'new'}`,
+    initialMessages: [
+      {
+        id: 'welcome-msg',
+        role: 'assistant',
+        content: 'Hi! I\'m your AI quote assistant. How can I help you create or update this quote?'
+      }
+    ],
+    onError: (error) => {
+      console.error('AI Chat error:', error);
+      
+      // More detailed error handling with specific messages
+      let errorMessage = 'There was an error communicating with the AI assistant.';
+      
+      if (error.message && error.message.includes('API key')) {
+        errorMessage = 'AI provider API key issue. Please contact your administrator.';
+      } else if (error.message && error.message.includes('unauthorized')) {
+        errorMessage = 'Authentication required. Please log in again to continue.';
+      } else if (error.message && error.message.includes('rate limit')) {
+        errorMessage = 'AI provider rate limit reached. Please try again in a moment.';
+      } else if (error.status === 401 || error.status === 403) {
+        errorMessage = 'You don\'t have permission to use the AI chat. Please log in or contact your administrator.';
+      } else if (error.status >= 500) {
+        errorMessage = 'Server error. Our team has been notified and is working on a fix.';
+      }
+      
+      toast({
+        title: 'AI Chat Error',
+        description: errorMessage,
+        variant: 'destructive'
+      });
+    },
+    onResponse: (response) => {
+      console.log('AI Chat response received:', response.status);
+      // Scroll to bottom of chat
+      if (chatContainerRef.current) {
+        chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+      }
+    },
+    onFinish: (message) => {
+      console.log('AI Chat message completed:', message.id);
+      // Extract line items from AI response
+      const newItems = extractLineItems(message.content);
+      
+      if (newItems.length > 0) {
+        // Only add new unique line items
+        const existingDescriptions = lineItems.map((item: LineItem) => item.description.toLowerCase());
+        const validItems = newItems.filter((item: LineItem) => 
+          !existingDescriptions.includes(item.description.toLowerCase())
+        );
+        
+        if (validItems.length > 0) {
+          setLineItems(prev => [...prev, ...validItems]);
+          setHasChanges(true);
+          
+          toast({
+            title: `${validItems.length} new item${validItems.length > 1 ? 's' : ''} added`,
+            description: "The AI has suggested new line items for your quote",
+          });
+        }
+      }
+    }
+  });
+  
+  // Handle voice input
+  const handleVoiceInput = () => {
+    if (voiceInput) {
+      // Stop voice input
+      if (recognitionInstance) {
+        recognitionInstance.stop();
+      }
+      setVoiceInput(false);
+      return;
+    }
+    
+    // Start voice input
+    try {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      
+      if (!SpeechRecognition) {
+        toast({
+          title: "Speech recognition not supported",
+          description: "Your browser does not support speech recognition. Try Chrome or Edge.",
+          variant: "destructive"
+        });
+        return;
+      }
+      
+      const recognition = new SpeechRecognition() as SpeechRecognition;
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = 'en-US';
+      
+      recognition.onresult = (event: SpeechRecognitionEvent) => {
+        const transcript = Array.from(event.results)
+          .map(result => result[0].transcript)
+          .join('');
+        
+        setInput(transcript);
+      };
+      
+      recognition.onerror = (event) => {
+        console.error("Speech recognition error", event);
+        setVoiceInput(false);
+        toast({
+          title: "Voice input error",
+          description: "There was an error with voice input. Please try again.",
+          variant: "destructive"
+        });
+      };
+      
+      recognition.onend = () => {
+        setVoiceInput(false);
+      };
+      
+      recognition.start();
+      setRecognitionInstance(recognition);
+      setVoiceInput(true);
+      
+    } catch (error) {
+      console.error("Speech recognition error", error);
+      toast({
+        title: "Voice input error",
+        description: "There was an error starting voice input. Please try again.",
+        variant: "destructive"
+      });
+    }
+  };
+  
+  // Handle form submission
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (voiceInput && recognitionInstance) {
+      recognitionInstance.stop();
+      setVoiceInput(false);
+    }
+    
+    if (!input.trim()) return;
+    
+    handleChatSubmit(e);
+  };
+  
+  // Handle line item updates
+  const handleNewItemChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    
+    setNewItem(prev => {
+      const updated = { ...prev };
+      
+      if (name === 'description') {
+        updated.description = value;
+      } else if (name === 'quantity') {
+        const quantity = parseInt(value, 10) || 1;
+        updated.quantity = quantity;
+        updated.total = quantity * updated.unitPrice;
+      } else if (name === 'unitPrice') {
+        const price = parseFloat(value) || 0;
+        updated.unitPrice = price;
+        updated.total = updated.quantity * price;
+      }
+      
+      return updated;
+    });
+  };
+  
+  const handleAddLineItem = () => {
+    if (!newItem.description.trim()) {
+      toast({
+        title: "Description required",
+        description: "Please provide a description for the line item.",
+        variant: "destructive"
+      });
+      return;
+    }
+    
+    setLineItems(prev => [...prev, { ...newItem }]);
+    setNewItem({
+      description: '',
+      quantity: 1,
+      unitPrice: 0,
+      total: 0
+    });
+    setHasChanges(true);
+  };
+  
+  const handleRemoveLineItem = (index: number) => {
+    setLineItems(prev => prev.filter((_, i) => i !== index));
+    setHasChanges(true);
+  };
+  
+  // Handle quote save
+  const saveQuote = async () => {
+    if (!quote || !user) return;
+    
+    try {
+      // Calculate total from line items
+      const total = lineItems.reduce((sum, item) => sum + item.total, 0);
+      
+      const payload = {
+        ...quote,
+        lineItems: JSON.stringify(lineItems),
+        amount: total
+      };
+      
+      const response = await apiRequest('PUT', `/api/quotes/${quoteId}`, payload);
+      
+      if (response.ok) {
+        setHasChanges(false);
+        toast({
+          title: "Auto-saved", 
+          description: "Your changes have been saved automatically.",
+          duration: 2000 // Shorter duration for auto-save notifications
+        });
+      } else {
+        const data = await response.json();
+        throw new Error(data.message || 'Failed to save quote');
+      }
+    } catch (error) {
+      console.error('Error saving quote:', error);
+      toast({
+        title: "Save failed",
+        description: error instanceof Error ? error.message : "An unknown error occurred",
+        variant: "destructive"
+      });
+    }
+  };
+  
+  // Auto-save when changes are made
+  useEffect(() => {
+    if (hasChanges && quote) {
+      // Clear any existing timer
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current);
+      }
+      
+      // Set a new timer for auto-save (reduced to 1.5 seconds for more immediate feedback)
+      saveTimerRef.current = setTimeout(() => {
+        saveQuote();
+      }, 1500); // Auto-save after 1.5 seconds of inactivity
+    }
+    
+    return () => {
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current);
+      }
+    };
+  }, [hasChanges, lineItems, quote]);
+  
+  // Clean up voice recognition on unmount
+  useEffect(() => {
+    return () => {
+      if (recognitionInstance) {
+        recognitionInstance.stop();
+      }
+    };
+  }, [recognitionInstance]);
+  
+  // Scroll to bottom of chat when new messages arrive
+  useEffect(() => {
+    if (chatContainerRef.current) {
+      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+    }
+  }, [messages]);
+  
+  // Handle quote deletion
+  const handleDeleteQuote = async () => {
+    if (!quoteId) return;
+    
+    if (!confirm("Are you sure you want to delete this quote? This action cannot be undone.")) {
+      return;
+    }
+    
+    try {
+      const response = await apiRequest('DELETE', `/api/quotes/${quoteId}`);
+      
+      if (response.ok) {
+        toast({
+          title: "Quote deleted",
+          description: "The quote has been deleted successfully."
+        });
+        navigate('/quotes');
+      } else {
+        const data = await response.json();
+        throw new Error(data.message || 'Failed to delete quote');
+      }
+    } catch (error) {
+      console.error('Error deleting quote:', error);
+      toast({
+        title: "Delete failed",
+        description: error instanceof Error ? error.message : "An unknown error occurred",
+        variant: "destructive"
+      });
+    }
+  };
+  
+  // If loading or no quote data
+  if (isLoadingQuote) {
+    return (
+      <DashboardLayout title="Loading Quote">
+        <div className="flex justify-center items-center h-[80vh]">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      </DashboardLayout>
+    );
+  }
+  
+  if (!quote) {
+    return (
+      <DashboardLayout title="Quote Not Found">
+        <div className="flex flex-col items-center justify-center h-[80vh] text-center">
+          <FileText className="h-16 w-16 mb-4 text-muted-foreground" />
+          <h2 className="text-2xl font-semibold mb-2">Quote not found</h2>
+          <p className="text-muted-foreground mb-6">The quote you're looking for doesn't exist or you don't have permission to view it.</p>
+          <Button onClick={() => navigate('/quotes')}>
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Back to quotes
+          </Button>
+        </div>
+      </DashboardLayout>
+    );
+  }
+  
+  return (
+    <DashboardLayout title="">
+      {/* Removed the back button at the top as requested */}
+      
+      {/* Mobile-optimized grid, responsive layout that works on both mobile and desktop */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 px-2 sm:px-0">
+        {/* Quote Details Card - On top on mobile, right side on desktop */}
+        <div className="order-1 md:order-2">
+          {/* Quote Details - Simpler top section with just quote number and date */}
+          <Card className="mb-4">
+            <CardHeader>
+              <CardTitle className="text-xl flex items-center justify-between">
+                <span>Quote #{quote.quoteNumber}</span>
+                <div 
+                  className="text-sm cursor-pointer hover:bg-muted/50 hover:border-border rounded px-1"
+                  onClick={() => {
+                    const newDateStr = prompt("Enter new date (YYYY-MM-DD):", new Date(quote.date).toISOString().split('T')[0]);
+                    if (newDateStr) {
+                      try {
+                        const newDate = new Date(newDateStr);
+                        if (!isNaN(newDate.getTime())) {
+                          setQuote(prevQuote => {
+                            if (!prevQuote) return prevQuote;
+                            return {
+                              ...prevQuote,
+                              date: newDate
+                            };
+                          });
+                          setHasChanges(true);
+                        }
+                      } catch (e) {
+                        toast({
+                          title: "Invalid date format",
+                          description: "Please use YYYY-MM-DD format",
+                          variant: "destructive"
+                        });
+                      }
+                    }
+                  }}
+                >
+                  {new Date(quote.date).toLocaleDateString()} <Pencil className="inline h-3 w-3 ml-1" />
+                </div>
+              </CardTitle>
+              <CardDescription className="text-sm">
+                <div 
+                  className="rounded p-2 border border-transparent hover:border-border hover:bg-muted/50 cursor-pointer transition-colors mt-2"
+                  onClick={() => {
+                    // Create a modal or inline editing functionality
+                    const newDescription = prompt("Edit quote description:", quote.description || "");
+                    if (newDescription !== null) {
+                      // Update the quote with new description
+                      setQuote(prevQuote => {
+                        if (!prevQuote) return prevQuote;
+                        return {
+                          ...prevQuote,
+                          description: newDescription
+                        };
+                      });
+                      
+                      // This will trigger the automatic save
+                      setHasChanges(true);
+                    }
+                  }}
+                >
+                  <p className="text-sm min-h-[2rem]">{quote.description || "Tap to add a description..."}</p>
+                </div>
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="pt-0 pb-3 sm:pb-4">
+              <div className="grid grid-cols-1 gap-2">
+                <div className="flex items-center justify-between border-b pb-2">
+                  <span className="text-sm font-medium">Contact First Name</span>
+                  <div
+                    className="text-sm cursor-pointer hover:bg-muted/50 hover:border-border rounded px-1"
+                    onClick={() => {
+                      // Extract first name from client name
+                      const [fullName] = quote.clientName.split(' - ');
+                      const firstName = fullName.split(' ')[0] || '';
+                      
+                      const newFirstName = prompt("Edit first name:", firstName);
+                      if (newFirstName !== null) {
+                        // Get existing last name and business name
+                        const [fullName, businessName] = quote.clientName.split(' - ');
+                        const nameParts = fullName.split(' ');
+                        const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : '';
+                        
+                        // Create updated client name
+                        const updatedName = `${newFirstName} ${lastName}`.trim();
+                        const updatedClientName = businessName 
+                          ? `${updatedName} - ${businessName}` 
+                          : updatedName;
+                        
+                        setQuote(prevQuote => {
+                          if (!prevQuote) return prevQuote;
+                          return {
+                            ...prevQuote,
+                            clientName: updatedClientName
+                          };
+                        });
+                        setHasChanges(true);
+                      }
+                    }}
+                  >
+                    {quote.clientName.split(' - ')[0].split(' ')[0] || "Not specified"} <Pencil className="inline h-3 w-3 ml-1" />
+                  </div>
+                </div>
+                <div className="flex items-center justify-between border-b pb-2">
+                  <span className="text-sm font-medium">Contact Last Name</span>
+                  <div
+                    className="text-sm cursor-pointer hover:bg-muted/50 hover:border-border rounded px-1"
+                    onClick={() => {
+                      // Extract last name from client name
+                      const [fullName] = quote.clientName.split(' - ');
+                      const nameParts = fullName.split(' ');
+                      const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : '';
+                      
+                      const newLastName = prompt("Edit last name:", lastName);
+                      if (newLastName !== null) {
+                        // Get existing first name and business name
+                        const [fullName, businessName] = quote.clientName.split(' - ');
+                        const firstName = fullName.split(' ')[0] || '';
+                        
+                        // Create updated client name
+                        const updatedName = `${firstName} ${newLastName}`.trim();
+                        const updatedClientName = businessName 
+                          ? `${updatedName} - ${businessName}` 
+                          : updatedName;
+                        
+                        setQuote(prevQuote => {
+                          if (!prevQuote) return prevQuote;
+                          return {
+                            ...prevQuote,
+                            clientName: updatedClientName
+                          };
+                        });
+                        setHasChanges(true);
+                      }
+                    }}
+                  >
+                    {(() => {
+                      const [fullName] = quote.clientName.split(' - ');
+                      const nameParts = fullName.split(' ');
+                      return nameParts.length > 1 ? nameParts.slice(1).join(' ') : "Not specified";
+                    })()} <Pencil className="inline h-3 w-3 ml-1" />
+                  </div>
+                </div>
+                <div className="flex items-center justify-between border-b pb-2">
+                  <span className="text-sm font-medium">Company</span>
+                  <div
+                    className="text-sm cursor-pointer hover:bg-muted/50 hover:border-border rounded px-1"
+                    onClick={() => {
+                      // Extract business name from the client name or use blank
+                      const currentBusinessName = quote.clientName.split(' - ')[1] || "";
+                      const newBusinessName = prompt("Edit company name:", currentBusinessName);
+                      if (newBusinessName !== null) {
+                        // Create a proper client name with business name if provided
+                        const clientNameParts = quote.clientName.split(' - ');
+                        const personName = clientNameParts[0];
+                        const updatedClientName = newBusinessName 
+                          ? `${personName} - ${newBusinessName}` 
+                          : personName;
+                        
+                        setQuote(prevQuote => {
+                          if (!prevQuote) return prevQuote;
+                          return {
+                            ...prevQuote,
+                            clientName: updatedClientName
+                          };
+                        });
+                        setHasChanges(true);
+                      }
+                    }}
+                  >
+                    {quote.clientName.split(' - ')[1] || "Not specified"} <Pencil className="inline h-3 w-3 ml-1" />
+                  </div>
+                </div>
+                <div className="flex items-center justify-between border-b pb-2">
+                  <span className="text-sm font-medium">Status</span>
+                  <span className="text-sm">
+                    <div 
+                      className={`px-2 py-1 rounded-full text-xs font-semibold text-center w-fit cursor-pointer
+                        ${quote.status.toLowerCase() === 'pending' ? 'bg-yellow-100 text-yellow-800' : ''}
+                        ${quote.status.toLowerCase() === 'draft' ? 'bg-gray-100 text-gray-800' : ''}
+                        ${quote.status.toLowerCase() === 'sent' ? 'bg-blue-100 text-blue-800' : ''}
+                        ${quote.status.toLowerCase() === 'accepted' ? 'bg-green-100 text-green-800' : ''}
+                        ${quote.status.toLowerCase() === 'rejected' ? 'bg-red-100 text-red-800' : ''}
+                        ${quote.status.toLowerCase() === 'invoiced' ? 'bg-purple-100 text-purple-800' : ''}
+                      `}
+                      onClick={() => {
+                        const statuses = ["Pending", "Draft", "Sent", "Accepted", "Rejected", "Invoiced"];
+                        const currentIndex = statuses.findIndex(s => 
+                          s.toLowerCase() === quote.status.toLowerCase());
+                        const nextIndex = (currentIndex + 1) % statuses.length;
+                        
+                        setQuote(prevQuote => {
+                          if (!prevQuote) return prevQuote;
+                          return {
+                            ...prevQuote,
+                            status: statuses[nextIndex]
+                          };
+                        });
+                        setHasChanges(true);
+                      }}
+                    >
+                      {quote.status} <Pencil className="inline h-3 w-3 ml-1" />
+                    </div>
+                  </span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+        
+        {/* AI Assistant Card - In the middle on mobile, left side on desktop */}
+        <div className="order-2 md:order-1">
+          {/* AI Assistant Card - Optimized for mobile with chat-like experience */}
+          <Card className="mb-4">
+            <CardContent className="pt-3 pb-3 sm:py-4">
+              {/* Chat messages container - WhatsApp-style with shorter height on mobile */}
+              <div 
+                ref={chatContainerRef}
+                className="mb-3 sm:mb-4 h-[180px] sm:h-[220px] md:h-[350px] lg:h-[400px] overflow-y-auto rounded border p-1 sm:p-3"
+              >
+                {messages.slice(1).map((message) => (
+                  <div key={message.id} className={`mb-2 sm:mb-3 flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
+                    <div className={`flex max-w-[92%] ${message.role === "user" ? "flex-row-reverse" : "flex-row"}`}>
+                      {/* Hide avatars on smallest screens to save space */}
+                      <Avatar className={`hidden sm:flex h-7 w-7 ${message.role === "user" ? "ml-2" : "mr-2"}`}>
+                        {message.role === "user" ? (
+                          <AvatarFallback className="bg-primary text-primary-foreground text-xs">You</AvatarFallback>
+                        ) : (
+                          <AvatarFallback className="bg-black text-white text-xs">AI</AvatarFallback>
+                        )}
+                      </Avatar>
+                      <div className={`rounded-lg py-2 px-3 ${
+                        message.role === "user" 
+                          ? "bg-primary text-primary-foreground" 
+                          : "bg-muted"
+                      }`}>
+                        <p className="whitespace-pre-wrap text-sm">{message.content}</p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                {isSubmitting && (
+                  <div className="mb-2 sm:mb-3 flex justify-start">
+                    <div className="flex max-w-[92%] flex-row">
+                      <Avatar className="hidden sm:flex mr-2 h-7 w-7">
+                        <AvatarFallback className="bg-black text-white text-xs">AI</AvatarFallback>
+                      </Avatar>
+                      <div className="rounded-lg bg-muted py-2 px-3">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      </div>
+                    </div>
+                  </div>
+                )}
+                
+                {/* Empty state for no messages - more compact on mobile */}
+                {messages.length <= 1 && !isSubmitting && (
+                  <div className="h-full flex items-center justify-center">
+                    <div className="text-center text-muted-foreground p-2 sm:p-4">
+                      <div className="mb-2">
+                        <Mic className="h-6 w-6 sm:h-8 sm:w-8 mx-auto opacity-30" />
+                      </div>
+                      <div className="mb-1 text-xs sm:text-sm">Start chatting with the AI assistant</div>
+                      <div className="text-xs">Ask: "What services should I include?"</div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Chat input - optimized for touch */}
+              <form onSubmit={handleSubmit} className="flex flex-col gap-2">
+                <div className="flex items-center relative">
+                  <Textarea
+                    value={input}
+                    onChange={handleInputChange}
+                    placeholder="Type or tap microphone..."
+                    className="pr-20 min-h-[60px] sm:min-h-[70px] text-sm"
+                  />
+                  <div className="absolute right-2 bottom-2 flex gap-2">
+                    <Button 
+                      type="button" 
+                      size="icon" 
+                      variant={voiceInput ? "destructive" : "outline"} 
+                      onClick={handleVoiceInput}
+                      className="h-8 w-8 flex-shrink-0"
+                      aria-label={voiceInput ? "Stop voice input" : "Start voice input"}
+                    >
+                      {voiceInput ? <X className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                    </Button>
+                    <Button 
+                      type="submit" 
+                      size="icon" 
+                      disabled={isSubmitting || !input.trim()} 
+                      className="h-8 w-8 flex-shrink-0"
+                      aria-label="Send message"
+                    >
+                      <Send className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              </form>
+            </CardContent>
+          </Card>
+        </div>
+        
+        {/* Line Items - At the bottom for both mobile and desktop, spanning full width on mobile */}
+        <div className="order-3 md:col-span-2">
+          {/* Line Items Card - Simplified Xero-inspired design with 5px margins on mobile */}
+          <Card className="mb-4">
+            <CardContent className="pt-3 pb-3 sm:py-4 px-[5px] sm:px-6">
+              {/* Simple title for the line items section */}
+              <h3 className="text-lg font-medium mb-3">Line Items</h3>
+              {/* Mobile-friendly table with proper column sizing */}
+              <div className="w-full">
+                <div className="w-full">
+                  <Table className="w-full table-fixed">
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-[45%] text-xs sm:text-sm">Description</TableHead>
+                        <TableHead className="w-[10%] text-xs sm:text-sm text-center">Qty</TableHead>
+                        <TableHead className="w-[20%] text-xs sm:text-sm">Price</TableHead>
+                        <TableHead className="w-[20%] text-xs sm:text-sm">Total</TableHead>
+                        <TableHead className="w-[5%] text-xs sm:text-sm"></TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {lineItems.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={5} className="text-center py-4 text-muted-foreground italic text-xs sm:text-sm">
+                            No line items yet. Use the AI chat to generate some.
+                          </TableCell>
+                        </TableRow>
+                      ) : (
+                        lineItems.map((item, index) => (
+                          <TableRow key={index}>
+                            <TableCell className="py-2 text-xs sm:text-sm">
+                              {/* Use line-clamp for long descriptions but still allow wrapping for readability */}
+                              <div className="line-clamp-2 break-words">{item.description}</div>
+                            </TableCell>
+                            <TableCell className="py-2 text-center text-xs sm:text-sm font-medium bg-muted/30 rounded-sm">{item.quantity}</TableCell>
+                            <TableCell className="py-2 text-xs sm:text-sm">${item.unitPrice.toFixed(2)}</TableCell>
+                            <TableCell className="py-2 text-xs sm:text-sm">${item.total.toFixed(2)}</TableCell>
+                            <TableCell className="py-2">
+                              <Button 
+                                variant="ghost" 
+                                size="icon" 
+                                onClick={() => handleRemoveLineItem(index)}
+                                className="h-6 w-6 sm:h-7 sm:w-7 p-0"
+                              >
+                                <Trash2 className="h-3 w-3 sm:h-4 sm:w-4 text-destructive" />
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      )}
+                      
+                      {/* Add new item row - Better mobile optimization */}
+                      <TableRow>
+                        <TableCell className="pt-3">
+                          <Input 
+                            name="description" 
+                            value={newItem.description} 
+                            onChange={handleNewItemChange} 
+                            placeholder="Item description"
+                            className="text-xs sm:text-sm w-full"
+                          />
+                        </TableCell>
+                        <TableCell className="pt-3">
+                          <Input 
+                            name="quantity" 
+                            type="number" 
+                            value={newItem.quantity.toString()} 
+                            onChange={handleNewItemChange} 
+                            min="1"
+                            className="w-full text-xs sm:text-sm text-center p-1 sm:p-2 font-medium bg-muted/50"
+                          />
+                        </TableCell>
+                        <TableCell className="pt-3">
+                          <Input 
+                            name="unitPrice" 
+                            type="number" 
+                            value={newItem.unitPrice.toString()} 
+                            onChange={handleNewItemChange} 
+                            step="0.01" 
+                            min="0"
+                            className="w-full text-xs sm:text-sm p-1 sm:p-2"
+                          />
+                        </TableCell>
+                        <TableCell className="pt-3 text-xs sm:text-sm">
+                          ${newItem.total.toFixed(2)}
+                        </TableCell>
+                        <TableCell className="pt-3">
+                          <Button 
+                            variant="outline" 
+                            size="icon" 
+                            onClick={handleAddLineItem}
+                            className="h-7 w-7 p-0"
+                            disabled={!newItem.description}
+                          >
+                            <Plus className="h-3 w-3" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                      
+                      {/* Total row */}
+                      <TableRow>
+                        <TableCell colSpan={3} className="py-4 text-right font-medium">
+                          Total:
+                        </TableCell>
+                        <TableCell className="py-4 font-medium">
+                          ${lineItems.reduce((sum, item) => sum + item.total, 0).toFixed(2)}
+                        </TableCell>
+                        <TableCell></TableCell>
+                      </TableRow>
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+          
+          {/* Action buttons - Simplified with full width buttons on mobile */}
+          <div className="grid grid-cols-1 gap-2 mb-6">
+            <Button 
+              variant="destructive" 
+              onClick={handleDeleteQuote}
+              className="w-full text-sm"
+            >
+              <Trash2 className="mr-2 h-4 w-4" />
+              Delete
+            </Button>
+            
+            <Button 
+              variant="default" 
+              onClick={() => navigate('/quotes')}
+              className="w-full text-sm bg-black hover:bg-black/90 text-white"
+            >
+              <ArrowLeft className="mr-2 h-4 w-4" />
+              Back
+            </Button>
+          </div>
+        </div>
+      </div>
+    </DashboardLayout>
+  );
+}

@@ -1,0 +1,47 @@
+// Mock data with Xero integration fields
+export const MOCK_QUOTES = [
+  {
+    id: 1,
+    quoteNumber: "Q-2023-001",
+    title: "Kitchen Renovation",
+    clientName: "John Smith",
+    date: "2023-05-15",
+    amount: 12500,
+    status: "Sent",
+    description: "Complete kitchen renovation including cabinets, countertops, and appliances",
+    companyId: 1,
+    userId: 1,
+    // Xero integration fields
+    xeroQuoteId: "12345abc",
+    xeroQuoteNumber: "INV-001",
+    xeroQuoteUrl: "https://go.xero.com/accountant/invoices/12345abc",
+  },
+  {
+    id: 2,
+    quoteNumber: "Q-2023-002",
+    title: "Office Remodel",
+    clientName: "Acme Corp",
+    date: "2023-05-18",
+    amount: 28750,
+    status: "Draft",
+    description: "Office space remodeling for 10 workstations",
+    companyId: 1,
+    userId: 1,
+  },
+  {
+    id: 3,
+    quoteNumber: "Q-2023-003",
+    title: "Bathroom Remodel",
+    clientName: "Sarah Johnson",
+    date: "2023-05-21",
+    amount: 8200,
+    status: "Accepted",
+    description: "Master bathroom renovation with new fixtures",
+    companyId: 1,
+    userId: 1,
+    // Xero integration fields
+    xeroQuoteId: "67890def",
+    xeroQuoteNumber: "INV-002",
+    xeroQuoteUrl: "https://go.xero.com/accountant/invoices/67890def",
+  },
+];
